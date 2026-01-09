@@ -1,0 +1,928 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PITAWALAPATHANA Dinner Management System</title>
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://apis.google.com/js/api.js"></script>
+</head>
+<body>
+    <div id="root"></div>
+    
+    <script type="text/babel">
+        const { useState, useEffect } = React;
+
+        // Google Sheets Configuration
+        const API_KEY = 'AIzaSyAju83bo-hApLNz6geBxLHye-GcIu6n-7w';
+        const SPREADSHEET_ID = '1z1ujQs8dizBzMbXHgeuhrNmBOc2OkzHjPK2t4Yh7Sjg';
+        const DISCOVERY_DOC = 'https://sheets.googleapis.com/$discovery/rest?version=v4';
+
+        // Lucide Icons as SVG components
+        const User = ({ className = "w-5 h-5" }) => <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>;
+        const DollarSign = ({ className = "w-5 h-5" }) => <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>;
+        const ClipboardList = ({ className = "w-5 h-5" }) => <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/><line x1="9" y1="12" x2="15" y2="12"/><line x1="9" y1="16" x2="15" y2="16"/></svg>;
+        const Home = ({ className = "w-5 h-5" }) => <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>;
+        const FileText = ({ className = "w-5 h-5" }) => <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><line x1="10" y1="9" x2="8" y2="9"/></svg>;
+        const Check = ({ className = "w-5 h-5" }) => <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>;
+        const X = ({ className = "w-5 h-5" }) => <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>;
+        const Plus = ({ className = "w-5 h-5" }) => <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>;
+        const Minus = ({ className = "w-5 h-5" }) => <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24"><line x1="5" y1="12" x2="19" y2="12"/></svg>;
+        const Trash = ({ className = "w-5 h-5" }) => <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>;
+        const Clock = ({ className = "w-5 h-5" }) => <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>;
+
+        const DinnerManagementSystem = () => {
+          const [currentPage, setCurrentPage] = useState('boardingMate');
+          const [currentUser, setCurrentUser] = useState('');
+          const [isLoggedIn, setIsLoggedIn] = useState(false);
+          const [orders, setOrders] = useState([]);
+          const [users] = useState([
+            'Daham', 'Lokka', 'Kaluwa', 'Tipa', 'Rawana', 
+            'Bura', 'Taka', 'Muga', 'Muththa', 'Riveesha', 'Wicky'
+          ]);
+          const [gapiInited, setGapiInited] = useState(false);
+          const [loading, setLoading] = useState(true);
+
+          const PRICES = {
+            chicken: 280,
+            egg: 230
+          };
+
+          // Initialize Google API
+          useEffect(() => {
+            const gapiLoaded = () => {
+              gapi.load('client', initializeGapiClient);
+            };
+
+            const initializeGapiClient = async () => {
+              try {
+                await gapi.client.init({
+                  apiKey: API_KEY,
+                  discoveryDocs: [DISCOVERY_DOC],
+                });
+                setGapiInited(true);
+                loadOrdersFromSheet();
+              } catch (err) {
+                console.error('Error initializing GAPI:', err);
+                alert('Failed to initialize Google Sheets API. Please check your API key.');
+                setLoading(false);
+              }
+            };
+
+            // Wait for script to load
+            const checkScriptsLoaded = setInterval(() => {
+              if (typeof gapi !== 'undefined') {
+                clearInterval(checkScriptsLoaded);
+                gapiLoaded();
+              }
+            }, 100);
+
+            return () => clearInterval(checkScriptsLoaded);
+          }, []);
+
+          // Check if orders are closed (after 6 PM)
+          const areOrdersClosed = () => {
+            const now = new Date();
+            const hour = now.getHours();
+            return hour >= 18;
+          };
+
+          // Google Sheets Functions
+          const loadOrdersFromSheet = async () => {
+            try {
+              setLoading(true);
+              const response = await gapi.client.sheets.spreadsheets.values.get({
+                spreadsheetId: SPREADSHEET_ID,
+                range: 'Orders!A2:H',
+              });
+              
+              const rows = response.result.values || [];
+              const loadedOrders = rows.map(row => ({
+                id: parseInt(row[0]) || Date.now(),
+                user: row[1] || '',
+                variant: row[2] || 'chicken',
+                quantity: parseInt(row[3]) || 1,
+                price: parseInt(row[4]) || 280,
+                date: row[5] || '',
+                paid: row[6] === 'TRUE' || row[6] === 'true',
+                timestamp: row[7] || new Date().toISOString()
+              }));
+              
+              setOrders(loadedOrders);
+            } catch (err) {
+              console.error('Error loading orders:', err);
+              alert('Failed to load orders from Google Sheets. Please check:\n1. API Key is correct\n2. Spreadsheet ID is correct\n3. Internet connection');
+            } finally {
+              setLoading(false);
+            }
+          };
+
+          const saveOrderToSheet = async (order) => {
+            try {
+              const values = [[
+                order.id,
+                order.user,
+                order.variant,
+                order.quantity,
+                order.price,
+                order.date,
+                order.paid,
+                order.timestamp
+              ]];
+
+              await gapi.client.sheets.spreadsheets.values.append({
+                spreadsheetId: SPREADSHEET_ID,
+                range: 'Orders!A:H',
+                valueInputOption: 'RAW',
+                resource: { values }
+              });
+
+              // Reload orders to include the new one
+              const response = await gapi.client.sheets.spreadsheets.values.get({
+                spreadsheetId: SPREADSHEET_ID,
+                range: 'Orders!A2:H',
+              });
+              
+              const rows = response.result.values || [];
+              const loadedOrders = rows.map(row => ({
+                id: parseInt(row[0]) || Date.now(),
+                user: row[1] || '',
+                variant: row[2] || 'chicken',
+                quantity: parseInt(row[3]) || 1,
+                price: parseInt(row[4]) || 280,
+                date: row[5] || '',
+                paid: row[6] === 'TRUE' || row[6] === 'true',
+                timestamp: row[7] || new Date().toISOString()
+              }));
+              
+              setOrders(loadedOrders);
+              
+            } catch (err) {
+              console.error('Error saving order:', err);
+              alert('Failed to save order to Google Sheets. Please try again.');
+            }
+          };
+
+          const updateOrderInSheet = async (updatedOrder) => {
+            try {
+              const response = await gapi.client.sheets.spreadsheets.values.get({
+                spreadsheetId: SPREADSHEET_ID,
+                range: 'Orders!A:A',
+              });
+              
+              const rows = response.result.values || [];
+              const rowIndex = rows.findIndex(row => parseInt(row[0]) === updatedOrder.id);
+              
+              if (rowIndex >= 0) {
+                const values = [[
+                  updatedOrder.id,
+                  updatedOrder.user,
+                  updatedOrder.variant,
+                  updatedOrder.quantity,
+                  updatedOrder.price,
+                  updatedOrder.date,
+                  updatedOrder.paid,
+                  updatedOrder.timestamp
+                ]];
+
+                await gapi.client.sheets.spreadsheets.values.update({
+                  spreadsheetId: SPREADSHEET_ID,
+                  range: `Orders!A${rowIndex + 2}:H${rowIndex + 2}`,
+                  valueInputOption: 'RAW',
+                  resource: { values }
+                });
+
+                // Update local state
+                setOrders(prev => prev.map(o => o.id === updatedOrder.id ? updatedOrder : o));
+              }
+            } catch (err) {
+              console.error('Error updating order:', err);
+              alert('Failed to update order in Google Sheets');
+            }
+          };
+
+          const deleteOrderFromSheet = async (orderId) => {
+            try {
+              // First get the sheet ID
+              const spreadsheetInfo = await gapi.client.sheets.spreadsheets.get({
+                spreadsheetId: SPREADSHEET_ID,
+              });
+              
+              const sheetId = spreadsheetInfo.result.sheets[0].properties.sheetId;
+              
+              // Delete the row
+              await gapi.client.sheets.spreadsheets.batchUpdate({
+                spreadsheetId: SPREADSHEET_ID,
+                resource: {
+                  requests: [{
+                    deleteDimension: {
+                      range: {
+                        sheetId: sheetId,
+                        dimension: 'ROWS',
+                        startIndex: await findRowIndex(orderId),
+                        endIndex: await findRowIndex(orderId) + 1
+                      }
+                    }
+                  }]
+                }
+              });
+
+              // Update local state
+              setOrders(prev => prev.filter(o => o.id !== orderId));
+              
+            } catch (err) {
+              console.error('Error deleting order:', err);
+              alert('Failed to delete order from Google Sheets');
+            }
+          };
+
+          const findRowIndex = async (orderId) => {
+            try {
+              const response = await gapi.client.sheets.spreadsheets.values.get({
+                spreadsheetId: SPREADSHEET_ID,
+                range: 'Orders!A:A',
+              });
+              
+              const rows = response.result.values || [];
+              return rows.findIndex(row => parseInt(row[0]) === orderId);
+            } catch (err) {
+              console.error('Error finding row index:', err);
+              return -1;
+            }
+          };
+
+          // Boarding Mate Page
+          const BoardingMatePage = () => {
+            const [selectedVariant, setSelectedVariant] = useState('chicken');
+            const [quantity, setQuantity] = useState(1);
+            const [todayDate] = useState(new Date().toISOString().split('T')[0]);
+
+            const myOrders = orders.filter(o => o.user === currentUser);
+            const unpaidOrders = myOrders.filter(o => !o.paid);
+            const totalUnpaid = unpaidOrders.reduce((sum, o) => sum + (o.price * o.quantity), 0);
+            const ordersClosed = areOrdersClosed();
+
+            const handleAddOrder = async () => {
+              if (ordersClosed) {
+                alert('Orders are closed! Please place orders before 6:00 PM.');
+                return;
+              }
+              
+              if (!gapiInited) {
+                alert('Google Sheets API not initialized. Please wait or refresh the page.');
+                return;
+              }
+              
+              const newOrder = {
+                id: Date.now(),
+                user: currentUser,
+                variant: selectedVariant,
+                quantity: quantity,
+                price: PRICES[selectedVariant],
+                date: todayDate,
+                paid: false,
+                timestamp: new Date().toISOString()
+              };
+              
+              await saveOrderToSheet(newOrder);
+              alert(`Order added: ${quantity}x ${selectedVariant.toUpperCase()} for Rs. ${PRICES[selectedVariant] * quantity}`);
+            };
+
+            const handleRemoveOrder = async (orderId) => {
+              if (confirm('Are you sure you want to remove this order?')) {
+                await deleteOrderFromSheet(orderId);
+                alert('Order removed successfully!');
+              }
+            };
+
+            const handleMarkPaid = async (orderId) => {
+              const orderToUpdate = orders.find(o => o.id === orderId);
+              if (orderToUpdate) {
+                await updateOrderInSheet({ ...orderToUpdate, paid: true });
+                alert('Payment marked as paid!');
+              }
+            };
+
+            return (
+              <div className="space-y-6">
+                <div className="bg-gradient-to-r from-blue-500 to-blue-600 text-white p-6 rounded-lg shadow-lg">
+                  <h2 className="text-2xl font-bold mb-2">Welcome, {currentUser}!</h2>
+                  <p className="text-blue-100">Place your dinner order below</p>
+                </div>
+
+                {ordersClosed && (
+                  <div className="bg-red-100 border-2 border-red-400 rounded-lg p-4 flex items-start gap-3">
+                    <Clock className="w-6 h-6 text-red-600 flex-shrink-0 mt-1" />
+                    <div>
+                      <p className="font-bold text-red-800 text-lg">Orders Closed!</p>
+                      <p className="text-red-700">Daily orders close at 6:00 PM. Please place your order before 6:00 PM tomorrow.</p>
+                    </div>
+                  </div>
+                )}
+
+                {!ordersClosed && (
+                  <div className="bg-green-100 border-2 border-green-400 rounded-lg p-4 flex items-start gap-3">
+                    <Clock className="w-6 h-6 text-green-600 flex-shrink-0 mt-1" />
+                    <div>
+                      <p className="font-bold text-green-800 text-lg">Orders Open!</p>
+                      <p className="text-green-700">Remember: Orders close at 6:00 PM daily. Place your order now!</p>
+                    </div>
+                  </div>
+                )}
+
+                <div className="bg-white p-6 rounded-lg shadow-md">
+                  <h3 className="text-xl font-bold mb-4 flex items-center gap-2">
+                    <Plus />
+                    Place New Order
+                  </h3>
+                  
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-sm font-medium mb-2">Select Variant</label>
+                      <div className="grid grid-cols-2 gap-3">
+                        <button
+                          onClick={() => setSelectedVariant('chicken')}
+                          disabled={ordersClosed}
+                          className={`p-4 rounded-lg border-2 transition ${
+                            selectedVariant === 'chicken'
+                              ? 'border-blue-500 bg-blue-50'
+                              : 'border-gray-200 hover:border-blue-300'
+                          } ${ordersClosed ? 'opacity-50 cursor-not-allowed' : ''}`}
+                        >
+                          <div className="font-bold">Chicken</div>
+                          <div className="text-sm text-gray-600">Rs. 280</div>
+                        </button>
+                        <button
+                          onClick={() => setSelectedVariant('egg')}
+                          disabled={ordersClosed}
+                          className={`p-4 rounded-lg border-2 transition ${
+                            selectedVariant === 'egg'
+                              ? 'border-blue-500 bg-blue-50'
+                              : 'border-gray-200 hover:border-blue-300'
+                          } ${ordersClosed ? 'opacity-50 cursor-not-allowed' : ''}`}
+                        >
+                          <div className="font-bold">Egg</div>
+                          <div className="text-sm text-gray-600">Rs. 230</div>
+                        </button>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium mb-2">Quantity</label>
+                      <div className="flex items-center gap-3">
+                        <button
+                          onClick={() => setQuantity(Math.max(1, quantity - 1))}
+                          disabled={ordersClosed}
+                          className={`p-2 bg-gray-200 rounded-lg hover:bg-gray-300 ${ordersClosed ? 'opacity-50 cursor-not-allowed' : ''}`}
+                        >
+                          <Minus className="w-4 h-4" />
+                        </button>
+                        <span className="text-2xl font-bold w-12 text-center">{quantity}</span>
+                        <button
+                          onClick={() => setQuantity(quantity + 1)}
+                          disabled={ordersClosed}
+                          className={`p-2 bg-gray-200 rounded-lg hover:bg-gray-300 ${ordersClosed ? 'opacity-50 cursor-not-allowed' : ''}`}
+                        >
+                          <Plus className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="bg-blue-50 p-4 rounded-lg">
+                      <div className="text-sm text-gray-600">Total Amount</div>
+                      <div className="text-2xl font-bold text-blue-600">
+                        Rs. {PRICES[selectedVariant] * quantity}
+                      </div>
+                    </div>
+
+                    <button
+                      onClick={handleAddOrder}
+                      disabled={ordersClosed || !gapiInited}
+                      className={`w-full bg-blue-500 text-white py-3 rounded-lg font-bold hover:bg-blue-600 transition ${
+                        ordersClosed || !gapiInited ? 'opacity-50 cursor-not-allowed' : ''
+                      }`}
+                    >
+                      {!gapiInited ? 'Loading...' : ordersClosed ? 'Orders Closed (After 6 PM)' : 'Place Order'}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="bg-white p-6 rounded-lg shadow-md">
+                  <h3 className="text-xl font-bold mb-4 flex items-center gap-2">
+                    <ClipboardList />
+                    My Today's Orders
+                  </h3>
+                  
+                  {myOrders.filter(o => o.date === todayDate).length === 0 ? (
+                    <div className="text-center py-8 text-gray-400">
+                      <ClipboardList className="w-12 h-12 mx-auto mb-2" />
+                      <p>No orders placed today</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {myOrders.filter(o => o.date === todayDate).map(order => (
+                        <div key={order.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg border border-gray-200">
+                          <div>
+                            <div className="font-medium text-lg">{order.quantity}x {order.variant.toUpperCase()}</div>
+                            <div className="text-sm text-gray-600">{order.date}</div>
+                            <div className={`text-sm font-medium ${order.paid ? 'text-green-600' : 'text-red-600'}`}>
+                              {order.paid ? '✓ PAID' : '✗ UNPAID'}
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <div className="text-right mr-3">
+                              <div className="font-bold text-lg">Rs. {order.price * order.quantity}</div>
+                            </div>
+                            <button
+                              onClick={() => handleRemoveOrder(order.id)}
+                              className="p-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition"
+                              title="Remove Order"
+                            >
+                              <Trash className="w-5 h-5" />
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div className="bg-white p-6 rounded-lg shadow-md">
+                  <h3 className="text-xl font-bold mb-4 flex items-center gap-2">
+                    <DollarSign />
+                    My Pending Payments
+                  </h3>
+                  
+                  {unpaidOrders.length === 0 ? (
+                    <div className="text-center py-8 text-gray-400">
+                      <Check className="w-12 h-12 mx-auto mb-2" />
+                      <p>No pending payments! All clear!</p>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="space-y-3 mb-4">
+                        {unpaidOrders.map(order => (
+                          <div key={order.id} className="flex items-center justify-between p-4 bg-red-50 rounded-lg border-2 border-red-200">
+                            <div>
+                              <div className="font-medium text-lg">{order.quantity}x {order.variant.toUpperCase()}</div>
+                              <div className="text-sm text-gray-600">{order.date}</div>
+                            </div>
+                            <div className="text-right">
+                              <div className="font-bold text-red-600 text-xl mb-2">Rs. {order.price * order.quantity}</div>
+                              <button
+                                onClick={() => handleMarkPaid(order.id)}
+                                disabled={!gapiInited}
+                                className="bg-green-500 text-white px-6 py-3 rounded-lg font-bold hover:bg-green-600 transition text-base disabled:opacity-50"
+                              >
+                                ✓ Mark as Paid
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="bg-red-100 p-4 rounded-lg border-2 border-red-300">
+                        <div className="text-sm text-gray-600">Total Pending</div>
+                        <div className="text-3xl font-bold text-red-600">Rs. {totalUnpaid}</div>
+                      </div>
+                    </>
+                  )}
+                </div>
+              </div>
+            );
+          };
+
+          // Owner Page
+          const OwnerPage = () => {
+            const today = new Date().toISOString().split('T')[0];
+            const todayOrders = orders.filter(o => o.date === today);
+            
+            const chickenCount = todayOrders
+              .filter(o => o.variant === 'chicken')
+              .reduce((sum, o) => sum + o.quantity, 0);
+            
+            const eggCount = todayOrders
+              .filter(o => o.variant === 'egg')
+              .reduce((sum, o) => sum + o.quantity, 0);
+
+            const paidOrders = orders.filter(o => o.paid);
+            const unpaidOrders = orders.filter(o => !o.paid);
+            
+            const totalReceived = paidOrders.reduce((sum, o) => sum + (o.price * o.quantity), 0);
+            const totalPending = unpaidOrders.reduce((sum, o) => sum + (o.price * o.quantity), 0);
+
+            const handleMarkPaid = async (orderId) => {
+              const orderToUpdate = orders.find(o => o.id === orderId);
+              if (orderToUpdate) {
+                await updateOrderInSheet({ ...orderToUpdate, paid: true });
+                alert('Payment marked as paid!');
+              }
+            };
+
+            return (
+              <div className="space-y-6">
+                <div className="bg-gradient-to-r from-green-500 to-green-600 text-white p-6 rounded-lg shadow-lg">
+                  <h2 className="text-2xl font-bold mb-2">Boarding Nanda Dashboard</h2>
+                  <p className="text-green-100">Manage orders and payments</p>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="bg-white p-6 rounded-lg shadow-md">
+                    <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
+                      <ClipboardList />
+                      Today's Orders ({today})
+                    </h3>
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between p-3 bg-orange-50 rounded-lg">
+                        <span className="font-medium">Chicken Packs</span>
+                        <span className="text-2xl font-bold text-orange-600">{chickenCount}</span>
+                      </div>
+                      <div className="flex items-center justify-between p-3 bg-yellow-50 rounded-lg">
+                        <span className="font-medium">Egg Packs</span>
+                        <span className="text-2xl font-bold text-yellow-600">{eggCount}</span>
+                      </div>
+                      <div className="flex items-center justify-between p-3 bg-blue-50 rounded-lg">
+                        <span className="font-medium">Total Packs</span>
+                        <span className="text-2xl font-bold text-blue-600">{chickenCount + eggCount}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="bg-white p-6 rounded-lg shadow-md">
+                    <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
+                      <DollarSign />
+                      Payment Summary
+                    </h3>
+                    <div className="space-y-3">
+                      <div className="p-3 bg-green-50 rounded-lg">
+                        <div className="text-sm text-gray-600">Payments Received</div>
+                        <div className="text-2xl font-bold text-green-600">Rs. {totalReceived}</div>
+                      </div>
+                      <div className="p-3 bg-red-50 rounded-lg">
+                        <div className="text-sm text-gray-600">Pending Payments</div>
+                        <div className="text-2xl font-bold text-red-600">Rs. {totalPending}</div>
+                      </div>
+                      <div className="p-3 bg-blue-50 rounded-lg">
+                        <div className="text-sm text-gray-600">Total Expected</div>
+                        <div className="text-2xl font-bold text-blue-600">Rs. {totalReceived + totalPending}</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="bg-white p-6 rounded-lg shadow-md">
+                  <h3 className="text-lg font-bold mb-4">Pending Payments by User</h3>
+                  <div className="space-y-2">
+                    {users.map(user => {
+                      const userUnpaid = unpaidOrders.filter(o => o.user === user);
+                      const userTotal = userUnpaid.reduce((sum, o) => sum + (o.price * o.quantity), 0);
+                      
+                      if (userTotal === 0) return null;
+                      
+                      return (
+                        <div key={user} className="border border-gray-200 rounded-lg p-4">
+                          <div className="flex items-center justify-between mb-3">
+                            <span className="font-bold text-lg">{user}</span>
+                            <span className="font-bold text-red-600 text-xl">Rs. {userTotal}</span>
+                          </div>
+                          <div className="space-y-2">
+                            {userUnpaid.map(order => (
+                              <div key={order.id} className="flex items-center justify-between p-3 bg-red-50 rounded">
+                                <div>
+                                  <div className="text-sm font-medium">{order.quantity}x {order.variant.toUpperCase()}</div>
+                                  <div className="text-xs text-gray-600">{order.date}</div>
+                                </div>
+                                <div className="flex items-center gap-3">
+                                  <span className="font-bold text-red-600">Rs. {order.price * order.quantity}</span>
+                                  <button
+                                    onClick={() => handleMarkPaid(order.id)}
+                                    disabled={!gapiInited}
+                                    className="bg-green-500 text-white px-4 py-2 rounded-lg font-bold hover:bg-green-600 transition text-sm disabled:opacity-50"
+                                  >
+                                    ✓ Mark Paid
+                                  </button>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })}
+                    {unpaidOrders.length === 0 && (
+                      <div className="text-center py-8 text-gray-400">
+                        <Check className="w-12 h-12 mx-auto mb-2" />
+                        <p>All payments received! 🎉</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            );
+          };
+
+          // Report Page
+          const ReportPage = () => {
+            const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+            
+            const dateOrders = orders.filter(o => o.date === selectedDate);
+            
+            const groupedByUser = users.map(user => {
+              const userOrders = dateOrders.filter(o => o.user === user);
+              const paid = userOrders.filter(o => o.paid);
+              const unpaid = userOrders.filter(o => !o.paid);
+              
+              return {
+                user,
+                orders: userOrders,
+                paid,
+                unpaid,
+                totalAmount: userOrders.reduce((sum, o) => sum + (o.price * o.quantity), 0),
+                paidAmount: paid.reduce((sum, o) => sum + (o.price * o.quantity), 0),
+                unpaidAmount: unpaid.reduce((sum, o) => sum + (o.price * o.quantity), 0)
+              };
+            }).filter(u => u.orders.length > 0);
+
+            return (
+              <div className="space-y-6">
+                <div className="bg-gradient-to-r from-purple-500 to-purple-600 text-white p-6 rounded-lg shadow-lg">
+                  <h2 className="text-2xl font-bold mb-2">Reports & History</h2>
+                  <p className="text-purple-100">View detailed order and payment reports</p>
+                </div>
+
+                <div className="bg-white p-6 rounded-lg shadow-md">
+                  <label className="block text-sm font-medium mb-2">Select Date</label>
+                  <input
+                    type="date"
+                    value={selectedDate}
+                    onChange={(e) => setSelectedDate(e.target.value)}
+                    className="w-full p-3 border border-gray-300 rounded-lg"
+                  />
+                </div>
+
+                {groupedByUser.length === 0 ? (
+                  <div className="bg-white p-12 rounded-lg shadow-md text-center text-gray-400">
+                    <FileText className="w-16 h-16 mx-auto mb-4" />
+                    <p>No orders found for this date</p>
+                  </div>
+                ) : (
+                  <div className="bg-white p-6 rounded-lg shadow-md">
+                    <h3 className="text-lg font-bold mb-4">Orders for {selectedDate}</h3>
+                    <div className="space-y-4">
+                      {groupedByUser.map(userData => (
+                        <div key={userData.user} className="border border-gray-200 rounded-lg p-4">
+                          <div className="flex items-center justify-between mb-3">
+                            <h4 className="font-bold text-lg">{userData.user}</h4>
+                            <div className="text-right">
+                              <div className="text-sm text-gray-600">Total: Rs. {userData.totalAmount}</div>
+                              {userData.unpaidAmount > 0 && (
+                                <div className="text-sm text-red-600 font-medium">
+                                  Pending: Rs. {userData.unpaidAmount}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                          
+                          <div className="space-y-2">
+                            {userData.orders.map(order => (
+                              <div
+                                key={order.id}
+                                className={`flex items-center justify-between p-2 rounded ${
+                                  order.paid ? 'bg-green-50' : 'bg-red-50'
+                                }`}
+                              >
+                                <div className="flex items-center gap-2">
+                                  {order.paid ? (
+                                    <Check className="w-4 h-4 text-green-600" />
+                                  ) : (
+                                    <X className="w-4 h-4 text-red-600" />
+                                  )}
+                                  <span className="text-sm">
+                                    {order.quantity}x {order.variant.toUpperCase()}
+                                  </span>
+                                </div>
+                                <div className="text-sm font-medium">
+                                  Rs. {order.price * order.quantity}
+                                  <span className={`ml-2 text-xs ${order.paid ? 'text-green-600' : 'text-red-600'}`}>
+                                    {order.paid ? 'PAID' : 'UNPAID'}
+                                  </span>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="mt-6 p-4 bg-blue-50 rounded-lg">
+                      <div className="grid grid-cols-2 gap-4 text-center">
+                        <div>
+                          <div className="text-sm text-gray-600">Total Orders</div>
+                          <div className="text-2xl font-bold text-blue-600">{dateOrders.length}</div>
+                        </div>
+                        <div>
+                          <div className="text-sm text-gray-600">Total Amount</div>
+                          <div className="text-2xl font-bold text-blue-600">
+                            Rs. {dateOrders.reduce((sum, o) => sum + (o.price * o.quantity), 0)}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          };
+
+          // Login Page
+          const LoginPage = () => {
+            const [selectedUser, setSelectedUser] = useState('');
+
+            const handleLogin = () => {
+              if (selectedUser) {
+                setCurrentUser(selectedUser);
+                setIsLoggedIn(true);
+                setCurrentPage('boardingMate');
+              } else {
+                alert('Please select a user');
+              }
+            };
+
+            const handleOwnerLogin = () => {
+              setCurrentUser('Boarding Nanda');
+              setIsLoggedIn(true);
+              setCurrentPage('owner');
+            };
+
+            return (
+              <div className="min-h-screen bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center p-4">
+                <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-md w-full">
+                  <div className="text-center mb-8">
+                    <Home className="w-16 h-16 mx-auto mb-4 text-blue-500" />
+                    <h1 className="text-3xl font-bold text-gray-800 mb-2">PITAWALAPATHANA</h1>
+                    <h2 className="text-xl text-gray-600">Boarding House</h2>
+                    <p className="text-sm text-gray-500 mt-2">Dinner Management System</p>
+                  </div>
+
+                  {!gapiInited ? (
+                    <div className="space-y-4">
+                      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 text-sm text-blue-800">
+                        <p className="font-medium mb-1">📊 Connecting to Google Sheets...</p>
+                        <p>Initializing connection to save your orders.</p>
+                      </div>
+                      <div className="text-center">
+                        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mx-auto mb-2"></div>
+                        <p className="text-sm text-gray-600">Loading...</p>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      <div>
+                        <label className="block text-sm font-medium mb-2">Select Your Name</label>
+                        <select
+                          value={selectedUser}
+                          onChange={(e) => setSelectedUser(e.target.value)}
+                          className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        >
+                          <option value="">-- Choose your name --</option>
+                          {users.map(user => (
+                            <option key={user} value={user}>{user}</option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <button
+                        onClick={handleLogin}
+                        className="w-full bg-blue-500 text-white py-3 rounded-lg font-bold hover:bg-blue-600 transition"
+                      >
+                        Login as Boarding Mate
+                      </button>
+
+                      <div className="relative my-6">
+                        <div className="absolute inset-0 flex items-center">
+                          <div className="w-full border-t border-gray-300"></div>
+                        </div>
+                        <div className="relative flex justify-center text-sm">
+                          <span className="px-2 bg-white text-gray-500">OR</span>
+                        </div>
+                      </div>
+
+                      <button
+                        onClick={handleOwnerLogin}
+                        className="w-full bg-gradient-to-r from-green-500 to-green-600 text-white py-4 rounded-lg font-bold hover:from-green-600 hover:to-green-700 transition shadow-lg text-lg"
+                      >
+                        🏠 Boarding Nanda Dashboard
+                      </button>
+
+                      <div className="text-center text-sm text-gray-500 mt-4">
+                        <p>✅ Google Sheets Connected</p>
+                        <p className="text-xs mt-1">Your orders will be saved automatically</p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          };
+
+          if (!isLoggedIn) {
+            return <LoginPage />;
+          }
+
+          if (loading) {
+            return (
+              <div className="min-h-screen bg-gray-100 flex items-center justify-center">
+                <div className="text-center">
+                  <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-blue-500 mx-auto mb-4"></div>
+                  <p className="text-gray-600">Loading orders from Google Sheets...</p>
+                </div>
+              </div>
+            );
+          }
+
+          return (
+            <div className="min-h-screen bg-gray-100">
+              <nav className="bg-white shadow-md">
+                <div className="max-w-6xl mx-auto px-4">
+                  <div className="flex items-center justify-between h-16">
+                    <div className="flex items-center gap-2">
+                      <Home />
+                      <span className="font-bold text-lg">PITAWALAPATHANA</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <User />
+                      <span className="text-sm font-medium">{currentUser}</span>
+                      <button
+                        onClick={() => setIsLoggedIn(false)}
+                        className="ml-4 text-sm text-red-600 hover:text-red-700"
+                      >
+                        Logout
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </nav>
+
+              <div className="bg-white border-b">
+                <div className="max-w-6xl mx-auto px-4">
+                  <div className="flex gap-1">
+                    {currentUser !== 'Boarding Nanda' && (
+                      <button
+                        onClick={() => setCurrentPage('boardingMate')}
+                        className={`px-6 py-3 font-medium transition ${
+                          currentPage === 'boardingMate'
+                            ? 'text-blue-600 border-b-2 border-blue-600'
+                            : 'text-gray-600 hover:text-blue-600'
+                        }`}
+                      >
+                        My Orders
+                      </button>
+                    )}
+                    {currentUser === 'Boarding Nanda' && (
+                      <button
+                        onClick={() => setCurrentPage('owner')}
+                        className={`px-6 py-3 font-medium transition ${
+                          currentPage === 'owner'
+                            ? 'text-blue-600 border-b-2 border-blue-600'
+                            : 'text-gray-600 hover:text-blue-600'
+                        }`}
+                      >
+                        Owner View
+                      </button>
+                    )}
+                    <button
+                      onClick={() => setCurrentPage('report')}
+                      className={`px-6 py-3 font-medium transition ${
+                        currentPage === 'report'
+                          ? 'text-blue-600 border-b-2 border-blue-600'
+                          : 'text-gray-600 hover:text-blue-600'
+                      }`}
+                    >
+                      Reports
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="max-w-6xl mx-auto p-4">
+                {currentPage === 'boardingMate' && currentUser !== 'Boarding Nanda' && <BoardingMatePage />}
+                {currentPage === 'owner' && <OwnerPage />}
+                {currentPage === 'report' && <ReportPage />}
+              </div>
+
+              <div className="max-w-6xl mx-auto p-4 mt-8">
+                <div className="bg-green-50 border border-green-200 rounded-lg p-4 text-sm text-green-800">
+                  <p className="font-medium mb-1">✅ Google Sheets Integration Active</p>
+                  <p>All data is automatically synced with Google Sheets. Sheet ID: {SPREADSHEET_ID.substring(0, 20)}...</p>
+                </div>
+              </div>
+            </div>
+          );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<DinnerManagementSystem />);
+    </script>
+</body>
+</html>
