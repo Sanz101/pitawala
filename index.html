@@ -9,7 +9,6 @@
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://apis.google.com/js/api.js"></script>
-    <script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
 <body>
     <div id="root"></div>
@@ -18,11 +17,9 @@
         const { useState, useEffect } = React;
 
         // Google Sheets Configuration
-        const CLIENT_ID = '823572614540-eknq9bqs00bk6pqm0ghqfvid7alph00o.apps.googleusercontent.com';
         const API_KEY = 'AIzaSyAju83bo-hApLNz6geBxLHye-GcIu6n-7w';
         const SPREADSHEET_ID = '1z1ujQs8dizBzMbXHgeuhrNmBOc2OkzHjPK2t4Yh7Sjg';
         const DISCOVERY_DOC = 'https://sheets.googleapis.com/$discovery/rest?version=v4';
-        const SCOPES = 'https://www.googleapis.com/auth/spreadsheets';
 
         // Lucide Icons as SVG components
         const User = ({ className = "w-5 h-5" }) => <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>;
@@ -47,9 +44,6 @@
             'Bura', 'Taka', 'Muga', 'Muththa', 'Riveesha', 'Wicky'
           ]);
           const [gapiInited, setGapiInited] = useState(false);
-          const [gisInited, setGisInited] = useState(false);
-          const [tokenClient, setTokenClient] = useState(null);
-          const [isAuthorized, setIsAuthorized] = useState(false);
           const [loading, setLoading] = useState(true);
 
           const PRICES = {
@@ -70,41 +64,24 @@
                   discoveryDocs: [DISCOVERY_DOC],
                 });
                 setGapiInited(true);
-                setLoading(false);
+                loadOrdersFromSheet();
               } catch (err) {
                 console.error('Error initializing GAPI:', err);
+                alert('Failed to initialize Google Sheets API. Please check your API key.');
                 setLoading(false);
               }
             };
 
-            const gisLoaded = () => {
-              const client = google.accounts.oauth2.initTokenClient({
-                client_id: CLIENT_ID,
-                scope: SCOPES,
-                callback: '', // defined later
-              });
-              setTokenClient(client);
-              setGisInited(true);
-            };
-
-            // Wait for scripts to load
+            // Wait for script to load
             const checkScriptsLoaded = setInterval(() => {
-              if (typeof gapi !== 'undefined' && typeof google !== 'undefined') {
+              if (typeof gapi !== 'undefined') {
                 clearInterval(checkScriptsLoaded);
                 gapiLoaded();
-                gisLoaded();
               }
             }, 100);
 
             return () => clearInterval(checkScriptsLoaded);
           }, []);
-
-          // Load orders when authorized
-          useEffect(() => {
-            if (isAuthorized) {
-              loadOrdersFromSheet();
-            }
-          }, [isAuthorized]);
 
           // Check if orders are closed (after 6 PM)
           const areOrdersClosed = () => {
@@ -114,26 +91,6 @@
           };
 
           // Google Sheets Functions
-          const handleAuthClick = () => {
-            if (tokenClient) {
-              tokenClient.callback = async (resp) => {
-                if (resp.error !== undefined) {
-                  console.error('Auth error:', resp);
-                  alert('Authorization failed. Please try again.');
-                  return;
-                }
-                setIsAuthorized(true);
-                await loadOrdersFromSheet();
-              };
-
-              if (gapi.client.getToken() === null) {
-                tokenClient.requestAccessToken({ prompt: 'consent' });
-              } else {
-                tokenClient.requestAccessToken({ prompt: '' });
-              }
-            }
-          };
-
           const loadOrdersFromSheet = async () => {
             try {
               setLoading(true);
@@ -157,7 +114,7 @@
               setOrders(loadedOrders);
             } catch (err) {
               console.error('Error loading orders:', err);
-              alert('Failed to load orders from Google Sheets. Make sure you have a sheet named "Orders" with proper headers.');
+              alert('Failed to load orders from Google Sheets. Please check:\n1. API Key is correct\n2. Spreadsheet ID is correct\n3. Internet connection');
             } finally {
               setLoading(false);
             }
@@ -183,10 +140,29 @@
                 resource: { values }
               });
 
-              await loadOrdersFromSheet();
+              // Reload orders to include the new one
+              const response = await gapi.client.sheets.spreadsheets.values.get({
+                spreadsheetId: SPREADSHEET_ID,
+                range: 'Orders!A2:H',
+              });
+              
+              const rows = response.result.values || [];
+              const loadedOrders = rows.map(row => ({
+                id: parseInt(row[0]) || Date.now(),
+                user: row[1] || '',
+                variant: row[2] || 'chicken',
+                quantity: parseInt(row[3]) || 1,
+                price: parseInt(row[4]) || 280,
+                date: row[5] || '',
+                paid: row[6] === 'TRUE' || row[6] === 'true',
+                timestamp: row[7] || new Date().toISOString()
+              }));
+              
+              setOrders(loadedOrders);
+              
             } catch (err) {
               console.error('Error saving order:', err);
-              alert('Failed to save order to Google Sheets');
+              alert('Failed to save order to Google Sheets. Please try again.');
             }
           };
 
@@ -214,12 +190,13 @@
 
                 await gapi.client.sheets.spreadsheets.values.update({
                   spreadsheetId: SPREADSHEET_ID,
-                  range: `Orders!A${rowIndex + 1}:H${rowIndex + 1}`,
+                  range: `Orders!A${rowIndex + 2}:H${rowIndex + 2}`,
                   valueInputOption: 'RAW',
                   resource: { values }
                 });
 
-                await loadOrdersFromSheet();
+                // Update local state
+                setOrders(prev => prev.map(o => o.id === updatedOrder.id ? updatedOrder : o));
               }
             } catch (err) {
               console.error('Error updating order:', err);
@@ -229,36 +206,51 @@
 
           const deleteOrderFromSheet = async (orderId) => {
             try {
+              // First get the sheet ID
+              const spreadsheetInfo = await gapi.client.sheets.spreadsheets.get({
+                spreadsheetId: SPREADSHEET_ID,
+              });
+              
+              const sheetId = spreadsheetInfo.result.sheets[0].properties.sheetId;
+              
+              // Delete the row
+              await gapi.client.sheets.spreadsheets.batchUpdate({
+                spreadsheetId: SPREADSHEET_ID,
+                resource: {
+                  requests: [{
+                    deleteDimension: {
+                      range: {
+                        sheetId: sheetId,
+                        dimension: 'ROWS',
+                        startIndex: await findRowIndex(orderId),
+                        endIndex: await findRowIndex(orderId) + 1
+                      }
+                    }
+                  }]
+                }
+              });
+
+              // Update local state
+              setOrders(prev => prev.filter(o => o.id !== orderId));
+              
+            } catch (err) {
+              console.error('Error deleting order:', err);
+              alert('Failed to delete order from Google Sheets');
+            }
+          };
+
+          const findRowIndex = async (orderId) => {
+            try {
               const response = await gapi.client.sheets.spreadsheets.values.get({
                 spreadsheetId: SPREADSHEET_ID,
                 range: 'Orders!A:A',
               });
               
               const rows = response.result.values || [];
-              const rowIndex = rows.findIndex(row => parseInt(row[0]) === orderId);
-              
-              if (rowIndex >= 0) {
-                await gapi.client.sheets.spreadsheets.batchUpdate({
-                  spreadsheetId: SPREADSHEET_ID,
-                  resource: {
-                    requests: [{
-                      deleteDimension: {
-                        range: {
-                          sheetId: 0,
-                          dimension: 'ROWS',
-                          startIndex: rowIndex,
-                          endIndex: rowIndex + 1
-                        }
-                      }
-                    }]
-                  }
-                });
-
-                await loadOrdersFromSheet();
-              }
+              return rows.findIndex(row => parseInt(row[0]) === orderId);
             } catch (err) {
-              console.error('Error deleting order:', err);
-              alert('Failed to delete order from Google Sheets');
+              console.error('Error finding row index:', err);
+              return -1;
             }
           };
 
@@ -278,6 +270,12 @@
                 alert('Orders are closed! Please place orders before 6:00 PM.');
                 return;
               }
+              
+              if (!gapiInited) {
+                alert('Google Sheets API not initialized. Please wait or refresh the page.');
+                return;
+              }
+              
               const newOrder = {
                 id: Date.now(),
                 user: currentUser,
@@ -304,6 +302,7 @@
               const orderToUpdate = orders.find(o => o.id === orderId);
               if (orderToUpdate) {
                 await updateOrderInSheet({ ...orderToUpdate, paid: true });
+                alert('Payment marked as paid!');
               }
             };
 
@@ -401,12 +400,12 @@
 
                     <button
                       onClick={handleAddOrder}
-                      disabled={ordersClosed}
+                      disabled={ordersClosed || !gapiInited}
                       className={`w-full bg-blue-500 text-white py-3 rounded-lg font-bold hover:bg-blue-600 transition ${
-                        ordersClosed ? 'opacity-50 cursor-not-allowed' : ''
+                        ordersClosed || !gapiInited ? 'opacity-50 cursor-not-allowed' : ''
                       }`}
                     >
-                      {ordersClosed ? 'Orders Closed (After 6 PM)' : 'Place Order'}
+                      {!gapiInited ? 'Loading...' : ordersClosed ? 'Orders Closed (After 6 PM)' : 'Place Order'}
                     </button>
                   </div>
                 </div>
@@ -475,7 +474,8 @@
                               <div className="font-bold text-red-600 text-xl mb-2">Rs. {order.price * order.quantity}</div>
                               <button
                                 onClick={() => handleMarkPaid(order.id)}
-                                className="bg-green-500 text-white px-6 py-3 rounded-lg font-bold hover:bg-green-600 transition text-base"
+                                disabled={!gapiInited}
+                                className="bg-green-500 text-white px-6 py-3 rounded-lg font-bold hover:bg-green-600 transition text-base disabled:opacity-50"
                               >
                                 ✓ Mark as Paid
                               </button>
@@ -517,6 +517,7 @@
               const orderToUpdate = orders.find(o => o.id === orderId);
               if (orderToUpdate) {
                 await updateOrderInSheet({ ...orderToUpdate, paid: true });
+                alert('Payment marked as paid!');
               }
             };
 
@@ -597,7 +598,8 @@
                                   <span className="font-bold text-red-600">Rs. {order.price * order.quantity}</span>
                                   <button
                                     onClick={() => handleMarkPaid(order.id)}
-                                    className="bg-green-500 text-white px-4 py-2 rounded-lg font-bold hover:bg-green-600 transition text-sm"
+                                    disabled={!gapiInited}
+                                    className="bg-green-500 text-white px-4 py-2 rounded-lg font-bold hover:bg-green-600 transition text-sm disabled:opacity-50"
                                   >
                                     ✓ Mark Paid
                                   </button>
@@ -741,6 +743,7 @@
               if (selectedUser) {
                 setCurrentUser(selectedUser);
                 setIsLoggedIn(true);
+                setCurrentPage('boardingMate');
               } else {
                 alert('Please select a user');
               }
@@ -762,19 +765,16 @@
                     <p className="text-sm text-gray-500 mt-2">Dinner Management System</p>
                   </div>
 
-                  {!isAuthorized ? (
+                  {!gapiInited ? (
                     <div className="space-y-4">
                       <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 text-sm text-blue-800">
-                        <p className="font-medium mb-1">🔒 Google Sheets Integration</p>
-                        <p>Please authorize access to Google Sheets to continue.</p>
+                        <p className="font-medium mb-1">📊 Connecting to Google Sheets...</p>
+                        <p>Initializing connection to save your orders.</p>
                       </div>
-                      <button
-                        onClick={handleAuthClick}
-                        disabled={!gapiInited || !gisInited}
-                        className="w-full bg-blue-500 text-white py-3 rounded-lg font-bold hover:bg-blue-600 transition disabled:opacity-50"
-                      >
-                        {gapiInited && gisInited ? 'Authorize Google Sheets' : 'Loading...'}
-                      </button>
+                      <div className="text-center">
+                        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mx-auto mb-2"></div>
+                        <p className="text-sm text-gray-600">Loading...</p>
+                      </div>
                     </div>
                   ) : (
                     <div className="space-y-4">
@@ -816,7 +816,8 @@
                       </button>
 
                       <div className="text-center text-sm text-gray-500 mt-4">
-                        <p>No password required - select your name to continue</p>
+                        <p>✅ Google Sheets Connected</p>
+                        <p className="text-xs mt-1">Your orders will be saved automatically</p>
                       </div>
                     </div>
                   )}
